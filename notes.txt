@@ -1,0 +1,1 @@
+while staying modular, add: rotating the camera with click and drag, and the cube face follows the camera angle on the x and z but NOT y axis; clicking the face normal of a block to add a block to it
