@@ -17,6 +17,9 @@ export function setupCameraRotation(camera, canvas, player) {
             camera.rotation.y -= deltaX * rotationSpeed;
             camera.rotation.x -= deltaY * rotationSpeed;
 
+            // Clamp the X rotation to avoid flipping
+            camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x));
+
             previousMousePosition = { x: event.clientX, y: event.clientY };
 
             // Update player's cube to face camera on X and Z axes
