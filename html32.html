@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Block Game with Inventory and GUI</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        #gui {
+            position: absolute; top: 10px; left: 10px;
+            background: rgba(0, 0, 0, 0.7); color: #fff;
+            padding: 10px; border-radius: 5px;
+            font: 14px Arial, sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <div id="gui">
+        <h3>Controls</h3>
+        <p><strong>Movement:</strong></p>
+        <ul>
+            <li><strong>W:</strong> Move Forward</li>
+            <li><strong>A:</strong> Move Left</li>
+            <li><strong>S:</strong> Move Backward</li>
+            <li><strong>D:</strong> Move Right</li>
+            <li><strong>Z:</strong> Move Up</li>
+            <li><strong>Shift:</strong> Move Down</li>
+        </ul>
+        <p><strong>Block Placement:</strong></p>
+        <ul>
+            <li><strong>M:</strong> Place Selected Block</li>
+            <li><strong>N:</strong> Place Selected Block</li>
+            <li><strong>X:</strong> Delete Block</li>
+        </ul>
+        <p><strong>Select Block:</strong></p>
+        <ul>
+            <li><strong>1-9:</strong> Select Block Type</li>
+        </ul>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/110/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/simplex-noise/2.4.0/simplex-noise.min.js"></script>
+    <script>
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true; // Enable shadows
+        document.body.appendChild(renderer.domElement);
+
+        // Set background color
+        scene.background = new THREE.Color(0x87CEEB); // Sky blue color
+
+        // Add lighting
+        const ambientLight = new THREE.AmbientLight(0x404040); // Soft white light
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1); // White light with intensity of 1
+        directionalLight.position.set(1, 1, 1).normalize();
+        directionalLight.castShadow = true; // Enable shadows
+        scene.add(directionalLight);
+
+        // Configure shadow properties
+        directionalLight.shadow.mapSize.width = 512;  // Shadow map resolution
+        directionalLight.shadow.mapSize.height = 512;
+        directionalLight.shadow.camera.near = 0.5;    // Near clipping plane
+        directionalLight.shadow.camera.far = 500;    // Far clipping plane
+        directionalLight.shadow.camera.left = -50;   // Shadow camera bounds
+        directionalLight.shadow.camera.right = 50;
+        directionalLight.shadow.camera.top = 50;
+        directionalLight.shadow.camera.bottom = -50;
+
+        const controls = { w: false, a: false, s: false, d: false, z: false, shift: false, m: false, n: false, x: false };
+        const inventory = ['wood', 'grass', 'water', 'leaves', 'glass', 'dirt', 'stone', 'wool', 'torch'];
+        let selectedBlockIndex = 0;
+
+        const blockMaterials = {
+            wood: new THREE.MeshStandardMaterial({ color: 0x8b4513 }),
+            grass: new THREE.MeshStandardMaterial({ color: 0x00ff00 }),
+            water: new THREE.MeshStandardMaterial({ color: 0x1e90ff, transparent: true, opacity: 0.6 }),
+            leaves: new THREE.MeshStandardMaterial({ color: 0x228b22 }),
+            glass: new THREE.MeshStandardMaterial({ color: 0xadd8e6, transparent: true, opacity: 0.3 }),
+            dirt: new THREE.MeshStandardMaterial({ color: 0x8b4513 }),
+            stone: new THREE.MeshStandardMaterial({ color: 0x808080 }),
+            wool: new THREE.MeshStandardMaterial({ color: 0xffe4e1 }),
+            torch: new THREE.MeshStandardMaterial({ color: 0xffa500 })
+        };
+
+        window.addEventListener('keydown', (e) => {
+            controls[e.key.toLowerCase()] = true;
+            if (!isNaN(e.key) && e.key >= 1 && e.key <= 9) {
+                selectedBlockIndex = parseInt(e.key) - 1;
+            }
+        });
+
+        window.addEventListener('keyup', (e) => controls[e.key.toLowerCase()] = false);
+
+        const playerGeometry = new THREE.BoxGeometry(1, 1, 1);
+        const playerMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
+        const player = new THREE.Mesh(playerGeometry, playerMaterial);
+        player.castShadow = true;
+        player.receiveShadow = true;
+        scene.add(player);
+
+        // Add a point light to the player
+        const playerLight = new THREE.PointLight(0xffffff, 1, 10); // White light with intensity 1 and distance 10
+        playerLight.position.set(0, 1, 0); // Position the light slightly above the player
+        playerLight.castShadow = true;
+        player.add(playerLight);
+
+        camera.position.z = 5;
+
+        const chunks = {};
+        const chunkSize = 8;
+        const renderDistance = 1; // Number of chunks in each direction to load around the player
+        const unloadDistance = renderDistance + 1;
+
+        // Initialize Simplex Noise
+        const simplex = new SimplexNoise();
+
+        function getChunkKey(x, z) {
+            return `${Math.floor(x / chunkSize)},${Math.floor(z / chunkSize)}`;
+        }
+
+        function generateChunk(chunkX, chunkZ) {
+            const chunkKey = `${chunkX},${chunkZ}`;
+            if (chunks[chunkKey]) return;
+
+            const chunk = new THREE.Group();
+            chunk.blocks = {}; // Initialize blocks tracking
+
+            for (let x = 0; x < chunkSize; x++) {
+                for (let z = 0; z < chunkSize; z++) {
+                    const worldX = chunkX * chunkSize + x;
+                    const worldZ = chunkZ * chunkSize + z;
+                    const noise = simplex.noise2D(worldX * 0.1, worldZ * 0.1);
+                    const y = Math.round(noise * 10);
+
+                    for (let i = 0; i <= y; i++) {
+                        const block = new THREE.Mesh(playerGeometry, blockMaterials.dirt);
+                        block.position.set(worldX, i, worldZ);
+                        block.castShadow = true;
+                        block.receiveShadow = true;
+                        chunk.add(block);
+
+                        // Add block to chunk's blocks tracking
+                        chunk.blocks[`${worldX},${i},${worldZ}`] = block;
+                    }
+                }
+            }
+            chunks[chunkKey] = chunk;
+            scene.add(chunk);
+        }
+
+        function unloadChunk(chunkX, chunkZ) {
+            const chunkKey = `${chunkX},${chunkZ}`;
+            if (chunks[chunkKey]) {
+                scene.remove(chunks[chunkKey]);
+                delete chunks[chunkKey];
+            }
+        }
+
+        function saveChunkData(chunkX, chunkZ) {
+            const chunkKey = `${chunkX},${chunkZ}`;
+            if (!chunks[chunkKey]) return;
+
+            const chunkData = Object.entries(chunks[chunkKey].blocks).map(([key, block]) => {
+                const [x, y, z] = key.split(',').map(Number);
+                const type = Object.keys(blockMaterials).find(key => blockMaterials[key] === block.material);
+                return { x, y, z, type };
+            });
+
+            localStorage.setItem(`chunk_${chunkKey}`, JSON.stringify(chunkData));
+        }
+
+        function loadChunkData(chunkX, chunkZ) {
+            const chunkKey = `${chunkX},${chunkZ}`;
+            const chunkData = JSON.parse(localStorage.getItem(`chunk_${chunkKey}`)) || [];
+
+            chunkData.forEach(({ x, y, z, type }) => {
+                const block = new THREE.Mesh(playerGeometry, blockMaterials[type]);
+                block.position.set(x, y, z);
+                block.castShadow = true;
+                block.receiveShadow = true;
+
+                if (chunks[chunkKey]) {
+                    chunks[chunkKey].add(block);
+                    chunks[chunkKey].blocks[`${x},${y},${z}`] = block;
+                }
+            });
+        }
+
+        function manageChunks() {
+            const playerChunkX = Math.floor(player.position.x / chunkSize);
+            const playerChunkZ = Math.floor(player.position.z / chunkSize);
+
+            const loadQueue = [];
+
+            for (let dx = -renderDistance; dx <= renderDistance; dx++) {
+                for (let dz = -renderDistance; dz <= renderDistance; dz++) {
+                    const chunkX = playerChunkX + dx;
+                    const chunkZ = playerChunkZ + dz;
+                    const chunkKey = `${chunkX},${chunkZ}`;
+                    if (!chunks[chunkKey]) {
+                        loadQueue.push({ x: chunkX, z: chunkZ });
+                    }
+                }
+            }
+
+            if (loadQueue.length > 0) {
+                const chunkToLoad = loadQueue.shift();
+                generateChunk(chunkToLoad.x, chunkToLoad.z);
+                loadChunkData(chunkToLoad.x, chunkToLoad.z);
+            }
+
+            for (const key in chunks) {
+                const [chunkX, chunkZ] = key.split(',').map(Number);
+                const distance = Math.max(Math.abs(chunkX - playerChunkX), Math.abs(chunkZ - playerChunkZ));
+                if (distance > unloadDistance) {
+                    saveChunkData(chunkX, chunkZ);
+                    unloadChunk(chunkX, chunkZ);
+                }
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const speed = 0.1;
+            player.position.x += (controls.d - controls.a) * speed;
+            player.position.z += (controls.s - controls.w) * speed;
+            player.position.y += (controls.z - controls.shift) * speed;
+
+            if (controls.m || controls.n) {
+                placeBlock(player.position.clone(), inventory[selectedBlockIndex]);
+            }
+            if (controls.x) {
+                deleteBlock(player.position.clone());
+            }
+
+            manageChunks();
+
+            camera.position.x = player.position.x;
+            camera.position.y = player.position.y + 5;
+            camera.position.z = player.position.z + 5;
+            camera.lookAt(player.position);
+
+            renderer.render(scene, camera);
+        }
+
+        function placeBlock(position, blockType) {
+            const block = new THREE.Mesh(playerGeometry, blockMaterials[blockType]);
+            block.position.copy(position).floor();
+            block.position.y += 1;
+            block.castShadow = true;
+            block.receiveShadow = true;
+
+            const chunkKey = getChunkKey(block.position.x, block.position.z);
+            if (chunks[chunkKey]) {
+                chunks[chunkKey].add(block);
+                chunks[chunkKey].blocks[`${block.position.x},${block.position.y},${block.position.z}`] = block;
+            } else {
+                // If the chunk is not yet loaded, load it first
+                generateChunk(Math.floor(block.position.x / chunkSize), Math.floor(block.position.z / chunkSize));
+                chunks[chunkKey].add(block);
+                chunks[chunkKey].blocks[`${block.position.x},${block.position.y},${block.position.z}`] = block;
+            }
+        }
+
+        function deleteBlock(position) {
+            const chunkKey = getChunkKey(position.x, position.z);
+            if (chunks[chunkKey]) {
+                const selectedBlockKey = Object.keys(chunks[chunkKey].blocks).find(key => {
+                    const [x, y, z] = key.split(',').map(Number);
+                    return Math.abs(x - position.x) < 0.5 && Math.abs(y - position.y) < 0.5 && Math.abs(z - position.z) < 0.5;
+                });
+
+                if (selectedBlockKey) {
+                    const block = chunks[chunkKey].blocks[selectedBlockKey];
+                    scene.remove(block);
+                    delete chunks[chunkKey].blocks[selectedBlockKey];
+                }
+            }
+        }
+
+        animate();
+    </script>
+</body>
+</html>
