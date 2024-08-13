@@ -122,23 +122,43 @@
             gui.style.display = gui.style.display === 'none' ? 'block' : 'none';
         });
 
-        // Map button clicks to controls
-        document.querySelectorAll('.button').forEach(button => {
-            button.addEventListener('mousedown', () => {
-                const key = button.dataset.key;
-                controls[key] = true;
-            });
+  // Map button clicks to controls
+document.querySelectorAll('.button').forEach(button => {
+    // Mouse events
+    button.addEventListener('mousedown', () => {
+        const key = button.dataset.key;
+        controls[key] = true;
+    });
 
-            button.addEventListener('mouseup', () => {
-                const key = button.dataset.key;
-                controls[key] = false;
-            });
+    button.addEventListener('mouseup', () => {
+        const key = button.dataset.key;
+        controls[key] = false;
+    });
 
-            button.addEventListener('mouseout', () => {
-                const key = button.dataset.key;
-                controls[key] = false;
-            });
-        });
+    button.addEventListener('mouseout', () => {
+        const key = button.dataset.key;
+        controls[key] = false;
+    });
+
+    // Touch events
+    button.addEventListener('touchstart', (event) => {
+    event.preventDefault(); // Prevent default touch behavior
+    const key = button.dataset.key;
+    controls[key] = true;
+});
+
+button.addEventListener('touchend', (event) => {
+    event.preventDefault(); // Prevent default touch behavior
+    const key = button.dataset.key;
+    controls[key] = false;
+});
+
+button.addEventListener('touchcancel', (event) => {
+    event.preventDefault(); // Prevent default touch behavior
+    const key = button.dataset.key;
+    controls[key] = false;
+});
+});
 
 
         const playerGeometry = new THREE.BoxGeometry(1, 1, 1);
